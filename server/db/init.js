@@ -55,9 +55,22 @@ async function init() {
     sqlDb = new SQL.Database(fs.readFileSync(DB_PATH));
   } else {
     sqlDb = new SQL.Database();
-    sqlDb.exec(SCHEMA);
-    save();
   }
+  sqlDb.exec(SCHEMA);
+  // Migrations: safe to run on every start — ignored if column already exists
+  try { sqlDb.exec('ALTER TABLE tasks ADD COLUMN time_spent INTEGER NOT NULL DEFAULT 0'); } catch {}
+  try { sqlDb.exec('ALTER TABLE tasks ADD COLUMN timer_started_at TEXT'); } catch {}
+  try { sqlDb.exec('ALTER TABLE tasks ADD COLUMN carried_from TEXT'); } catch {}
+  // day_reviews table (new — exec the CREATE IF NOT EXISTS, no ALTER needed)
+  sqlDb.exec(`CREATE TABLE IF NOT EXISTS day_reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL UNIQUE,
+    went_well TEXT NOT NULL DEFAULT '',
+    blockers  TEXT NOT NULL DEFAULT '',
+    tomorrow  TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
+  save();
 }
 
 module.exports = { db, init };

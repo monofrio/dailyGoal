@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getTasks, createTask, updateTask, deleteTask, getLog, saveLog } from '../api/index.js';
+import { getTasks, createTask, updateTask, deleteTask, getLog, saveLog, timerStart, timerStop, carryOver, reorderTasks } from '../api/index.js';
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -17,7 +17,12 @@ export function useDay() {
     setError(null);
     try {
       const [t, l] = await Promise.all([getTasks(date), getLog(date)]);
-      setTasks(t);
+      let allTasks = t;
+      if (date <= todayISO()) {
+        const { carried } = await carryOver(date);
+        if (carried.length > 0) allTasks = [...t, ...carried];
+      }
+      setTasks(allTasks);
       setNotes(l.notes ?? '');
     } catch (e) {
       setError(e.message);
@@ -48,6 +53,32 @@ export function useDay() {
     setTasks(prev => prev.filter(t => t.id !== id));
   };
 
+  const startTimer = async (id) => {
+    // Stop any other running timer first
+    const running = tasks.find(t => t.timer_started_at && t.id !== id);
+    if (running) {
+      const stopped = await timerStop(running.id);
+      setTasks(prev => prev.map(t => t.id === running.id ? stopped : t));
+    }
+    const updated = await timerStart(id);
+    setTasks(prev => prev.map(t => t.id === id ? updated : t));
+  };
+
+  const reorder = async (orderedIds) => {
+    setTasks(prev => {
+      const byId = Object.fromEntries(prev.map(t => [t.id, t]));
+      const reordered = orderedIds.map((id, position) => ({ ...byId[id], position }));
+      const rest = prev.filter(t => !orderedIds.includes(t.id));
+      return [...reordered, ...rest];
+    });
+    await reorderTasks(date, orderedIds);
+  };
+
+  const stopTimer = async (id) => {
+    const updated = await timerStop(id);
+    setTasks(prev => prev.map(t => t.id === id ? updated : t));
+  };
+
   const persistNotes = useCallback(async (value) => {
     setNotes(value);
     await saveLog(date, value);
@@ -64,6 +95,7 @@ export function useDay() {
   return {
     date, tasks, notes, loading, error,
     addTask, toggleTask, editTask, removeTask,
+    startTimer, stopTimer, reorder,
     persistNotes, goTo, goToday, shift,
   };
 }
